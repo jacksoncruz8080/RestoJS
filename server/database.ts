@@ -57,7 +57,7 @@ export const initDatabase = async () => {
         category VARCHAR(100),
         price DECIMAL(10,2) NOT NULL,
         cost DECIMAL(10,2) DEFAULT 0,
-        stock INTEGER DEFAULT 0,
+        stock DECIMAL(10,3) DEFAULT 0,
         active BOOLEAN DEFAULT true,
         unit VARCHAR(10) DEFAULT 'UN',
         image TEXT,
