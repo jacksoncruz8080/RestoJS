@@ -1,0 +1,7 @@
+{
+  "name": "RestoMaster POS & Admin",
+  "description": "A comprehensive restaurant management system featuring a high-performance POS, sales dashboard, product inventory management, and cashier control with thermal receipt generation.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

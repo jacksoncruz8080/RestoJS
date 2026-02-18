@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: restomaster-backend
+    env: node
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm run dev
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: JSRESTO
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: JSRESTO
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: JSRESTO
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: JSRESTO
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: JSRESTO
+          property: password
+      - key: PORT
+        value: 3001
+
+  - type: web
+    name: restomaster-frontend
+    env: static
+    region: oregon
+    buildCommand: npm install && npm run build
+    outputDirectory: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://restomaster-backend.onrender.com/api

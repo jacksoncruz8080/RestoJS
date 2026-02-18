@@ -1,0 +1,78 @@
+
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Resto - Gestão de Restaurante</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        
+        /* Estilos de Impressão Corrigidos */
+        @media print {
+            /* NUNCA esconda o #root, pois ele contém o elemento de impressão */
+            
+            /* Esconde elementos indesejados */
+            aside, .no-print, header, nav {
+                display: none !important;
+            }
+            
+            /* Reseta containers para garantir que o cupom apareça */
+            #root, main, body, html {
+                display: block !important;
+                overflow: visible !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+            }
+
+            /* Força o container de impressão a ocupar a tela toda na visualização */
+            .print-only {
+                display: block !important;
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 80mm !important;
+                z-index: 9999 !important;
+                background: white !important;
+            }
+
+            #print-receipt {
+                width: 80mm !important;
+                margin: 0 !important;
+                padding: 10px !important;
+            }
+
+            /* Configuração da Página Térmica */
+            @page {
+                margin: 0;
+                size: 80mm auto;
+            }
+        }
+
+        /* Na tela, o conteúdo de impressão fica oculto */
+        .print-only {
+            display: none;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-gray-50 text-gray-900">
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
