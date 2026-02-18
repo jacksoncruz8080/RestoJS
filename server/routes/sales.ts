@@ -19,6 +19,14 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { id, orderNumber, customerName, items, subtotal, discount, total, paymentMethod, timestamp, status, operatorId, agreementId, employeeId } = req.body;
+    
+    // Validar dados
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Items inválidos' });
+    }
+    
+    const itemsJson = JSON.stringify(items);
+    
     await pool.query(
       `INSERT INTO sales (id, order_number, customer_name, items, subtotal, discount, total, payment_method, timestamp, status, operator_id, agreement_id, employee_id) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -28,21 +36,25 @@ router.post('/', async (req, res) => {
        total = EXCLUDED.total, payment_method = EXCLUDED.payment_method,
        timestamp = EXCLUDED.timestamp, status = EXCLUDED.status,
        agreement_id = EXCLUDED.agreement_id, employee_id = EXCLUDED.employee_id`,
-      [id, orderNumber, customerName, JSON.stringify(items), subtotal, discount, total, paymentMethod, timestamp, status, operatorId, agreementId, employeeId]
+      [id, orderNumber, customerName, itemsJson, subtotal, discount, total, paymentMethod, timestamp, status, operatorId, agreementId, employeeId]
     );
     
     if (status === 'COMPLETED') {
       for (const item of items) {
-        await pool.query(
-          'UPDATE products SET stock = stock - $1 WHERE id = $2',
-          [item.quantity, item.productId]
-        );
+        const qty = parseFloat(item.quantity) || 0;
+        if (qty > 0) {
+          await pool.query(
+            'UPDATE products SET stock = stock - $1 WHERE id = $2',
+            [qty, item.productId]
+          );
+        }
       }
     }
     
     res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to save sale' });
+  } catch (error: any) {
+    console.error('Error saving sale:', error);
+    res.status(500).json({ error: 'Failed to save sale: ' + error.message });
   }
 });
 
