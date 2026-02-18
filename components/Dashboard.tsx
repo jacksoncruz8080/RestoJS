@@ -1,31 +1,49 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { db } from '../services/db';
-import { Sale, CorporateAgreement, CorporateConsumption, CorporateInvoice, AgreementType } from '../types';
+import { Sale, CorporateAgreement, CorporateConsumption, CorporateInvoice, AgreementType, CashSession, CashMovement } from '../types';
 import { 
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
 } from 'recharts';
-import { TrendingUp, DollarSign, ShoppingBag, Users, ChevronUp, ChevronDown, Building2, AlertTriangle, Calendar } from 'lucide-react';
+import { TrendingUp, DollarSign, ShoppingBag, Users, ChevronUp, ChevronDown, Building2, AlertTriangle, Calendar, Printer, X, Package } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [agreements, setAgreements] = useState<CorporateAgreement[]>([]);
   const [consumptions, setConsumptions] = useState<CorporateConsumption[]>([]);
   const [invoices, setInvoices] = useState<CorporateInvoice[]>([]);
+  const [cashSessions, setCashSessions] = useState<CashSession[]>([]);
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
 
   useEffect(() => {
     const loadData = async () => {
-      const [salesData, agreementsData, consumptionsData, invoicesData] = await Promise.all([
+      const [salesData, agreementsData, consumptionsData, invoicesData, sessionsData, productsData] = await Promise.all([
         db.getSales(),
         db.getAgreements(),
         db.getConsumptions(),
-        db.getInvoices()
+        db.getInvoices(),
+        db.getCashSessions(),
+        db.getProducts()
       ]);
       setSales(salesData);
       setAgreements(agreementsData);
       setConsumptions(consumptionsData);
       setInvoices(invoicesData);
+      setCashSessions(sessionsData);
+      setProducts(productsData);
+      
+      const allMovements: CashMovement[] = [];
+      for (const session of sessionsData) {
+        const movements = await db.getMovements(session.id);
+        allMovements.push(...movements);
+      }
+      setCashMovements(allMovements);
     };
     loadData();
   }, []);
@@ -98,14 +116,6 @@ const Dashboard: React.FC = () => {
     agreementForecasts.reduce((acc, curr) => acc + curr.projectedTotal, 0), 
   [agreementForecasts]);
 
-  const forecastChartData = useMemo(() => 
-    agreementForecasts.slice(0, 5).map(f => ({
-      name: f.tradeName,
-      'Real': f.realAmountSoFar,
-      'Projetado': f.projectedTotal
-    })), 
-  [agreementForecasts]);
-
   const salesByDay = useMemo(() => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
@@ -130,6 +140,149 @@ const Dashboard: React.FC = () => {
     }));
   }, [completedSales]);
 
+  const topProductsByCategory = useMemo(() => {
+    const productSales: Record<string, { name: string; category: string; quantity: number; total: number }> = {};
+    
+    completedSales.forEach(sale => {
+      sale.items.forEach(item => {
+        const product = products.find(p => p.id === item.productId);
+        const key = item.productId;
+        if (!productSales[key]) {
+          productSales[key] = {
+            name: item.name,
+            category: product?.category || 'Sem Categoria',
+            quantity: 0,
+            total: 0
+          };
+        }
+        productSales[key].quantity += item.quantity;
+        productSales[key].total += item.total;
+      });
+    });
+
+    const byCategory: Record<string, typeof productSales[string]> = {};
+    Object.values(productSales).forEach(ps => {
+      if (!byCategory[ps.category] || byCategory[ps.category].quantity < ps.quantity) {
+        byCategory[ps.category] = ps;
+      }
+    });
+
+    return Object.entries(byCategory).map(([category, data]) => ({
+      category,
+      ...data
+    })).sort((a, b) => b.quantity - a.quantity);
+  }, [completedSales, products]);
+
+  const reportData = useMemo(() => {
+    if (!reportStartDate || !reportEndDate) return null;
+    
+    const start = new Date(reportStartDate).toISOString().split('T')[0];
+    const end = new Date(reportEndDate + 'T23:59:59').toISOString();
+
+    const filteredSales = completedSales.filter(s => s.timestamp >= start && s.timestamp <= end);
+    const filteredMovements = cashMovements.filter(m => m.timestamp <= end);
+
+    const totalVendas = filteredSales.reduce((acc, s) => acc + s.total, 0);
+    const totalEntradas = filteredMovements
+      .filter(m => m.type === 'REFORCO')
+      .reduce((acc, m) => acc + m.amount, 0);
+    const totalSaidas = filteredMovements
+      .filter(m => m.type === 'SANGRIA')
+      .reduce((acc, m) => acc + m.amount, 0);
+
+    return {
+      sales: filteredSales,
+      movements: filteredMovements,
+      totalVendas,
+      totalEntradas,
+      totalSaidas,
+      saldoFinal: totalVendas + totalEntradas - totalSaidas
+    };
+  }, [reportStartDate, reportEndDate, completedSales, cashMovements]);
+
+  const printReport = () => {
+    if (!reportData) return;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Relatório de Vendas - ${reportStartDate} a ${reportEndDate}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #f2f2f2; }
+          .totals { margin-top: 20px; text-align: right; }
+          .totals div { margin: 5px 0; font-size: 16px; }
+          .header { text-align: center; margin-bottom: 30px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>Relatório de Vendas</h1>
+          <p>Período: ${reportStartDate} a ${reportEndDate}</p>
+        </div>
+        
+        <h2>Resumo Financeiro</h2>
+        <div class="totals">
+          <div><strong>Total Vendas:</strong> R$ ${reportData.totalVendas.toFixed(2)}</div>
+          <div><strong>Entradas (Reforço):</strong> R$ ${reportData.totalEntradas.toFixed(2)}</div>
+          <div><strong>Saídas (Sangria):</strong> R$ ${reportData.totalSaidas.toFixed(2)}</div>
+          <div><strong>Saldo Final:</strong> R$ ${reportData.saldoFinal.toFixed(2)}</div>
+        </div>
+
+        <h2>Detalhamento de Vendas (${reportData.sales.length})</h2>
+        <table>
+          <tr>
+            <th>Nº Pedido</th>
+            <th>Data/Hora</th>
+            <th>Cliente</th>
+            <th>Pagamento</th>
+            <th>Valor</th>
+          </tr>
+          ${reportData.sales.map(s => `
+            <tr>
+              <td>${s.orderNumber}</td>
+              <td>${new Date(s.timestamp).toLocaleString('pt-BR')}</td>
+              <td>${s.customerName || 'Balcão'}</td>
+              <td>${s.paymentMethod || '-'}</td>
+              <td>R$ ${s.total.toFixed(2)}</td>
+            </tr>
+          `).join('')}
+        </table>
+
+        <h2>Movimentações de Caixa</h2>
+        <table>
+          <tr>
+            <th>Data/Hora</th>
+            <th>Tipo</th>
+            <th>Descrição</th>
+            <th>Valor</th>
+          </tr>
+          ${reportData.movements.map(m => `
+            <tr>
+              <td>${new Date(m.timestamp).toLocaleString('pt-BR')}</td>
+              <td>${m.type === 'REFORCO' ? 'Entrada' : 'Saída'}</td>
+              <td>${m.description || '-'}</td>
+              <td>${m.type === 'REFORCO' ? '+' : '-'}R$ ${m.amount.toFixed(2)}</td>
+            </tr>
+          `).join('')}
+        </table>
+
+        <script>window.print();</script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   const COLORS = ['#f97316', '#3b82f6', '#10b981', '#a855f7', '#6366f1'];
 
   return (
@@ -139,9 +292,17 @@ const Dashboard: React.FC = () => {
           <h2 className="text-3xl font-black text-gray-800 tracking-tight">Dashboard Gerencial</h2>
           <p className="text-gray-500 font-medium">Análise de vendas, financeiro e previsões inteligentes.</p>
         </div>
-        <div className="bg-white px-6 py-3 rounded-2xl border shadow-sm flex items-center gap-3">
-          <Calendar className="text-orange-500" size={20} />
-          <span className="font-bold text-gray-700">{new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</span>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setShowReportModal(true)}
+            className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all"
+          >
+            <Printer size={20} /> Imprimir Relatório
+          </button>
+          <div className="bg-white px-6 py-3 rounded-2xl border shadow-sm flex items-center gap-3">
+            <Calendar className="text-orange-500" size={20} />
+            <span className="font-bold text-gray-700">{new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase()}</span>
+          </div>
         </div>
       </header>
 
@@ -174,98 +335,46 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      <section className="space-y-6">
-        <div className="flex items-center justify-between">
-           <h3 className="text-xl font-black text-gray-800 flex items-center gap-3">
-             <div className="p-2 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-100">
-               <TrendingUp size={20} />
-             </div>
-             Previsão de Consumo de Convênios
-           </h3>
-           <div className="flex gap-2">
-             <span className="px-3 py-1 bg-gray-100 text-gray-400 text-[10px] font-black rounded-lg uppercase">Base: Média Móvel 3 Meses</span>
-           </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
-            <div className="flex justify-between items-start">
-               <div>
-                  <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">Performance Top 5 Convênios</h4>
-                  <p className="text-xs text-gray-400 font-medium">Comparação entre consumo atual e meta projetada.</p>
-               </div>
-            </div>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={forecastChartData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
-                  <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10}} tickFormatter={(v) => `R$${v}`} />
-                  <Tooltip 
-                    cursor={{fill: '#f8fafc'}}
-                    contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '15px' }} 
-                  />
-                  <Legend verticalAlign="top" align="right" iconType="circle" />
-                  <Bar dataKey="Real" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar dataKey="Projetado" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={20} />
-                </BarChart>
-              </ResponsiveContainer>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">Produtos Mais Vendidos por Categoria</h4>
+              <p className="text-xs text-gray-400 font-medium">Top produto de cada categoria</p>
             </div>
           </div>
-
-          <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
-            <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">Alertas de Tendência</h4>
-            <div className="space-y-4 overflow-y-auto max-h-[350px] scrollbar-hide">
-              {agreementForecasts.length === 0 ? (
-                <div className="py-10 text-center text-gray-300 font-bold uppercase text-[10px] tracking-widest">Sem dados de convênio.</div>
-              ) : (
-                agreementForecasts.sort((a, b) => b.projectedTotal - a.projectedTotal).map(f => (
-                  <div key={f.id} className="p-4 bg-gray-50 rounded-2xl border border-transparent hover:border-blue-100 transition-all group">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="font-black text-gray-800 text-xs uppercase truncate max-w-[150px]">{f.tradeName}</span>
-                      <span className={`flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-lg ${f.trend >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                        {f.trend >= 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        {Math.abs(f.trend).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-end">
-                      <div className="space-y-1">
-                         <p className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">Projeção: <b className="text-gray-600">R$ {f.projectedTotal.toFixed(2)}</b></p>
-                         <p className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">Média Diária: <b className="text-gray-600">R$ {f.dailyAvg.toFixed(2)}</b></p>
-                      </div>
-                      {Math.abs(f.trend) > 20 && (
-                        <div className="bg-orange-100 text-orange-600 p-1.5 rounded-lg" title="Oscilação alta detectada!">
-                          <AlertTriangle size={14} />
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-3 h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-1000 ${f.trend > 0 ? 'bg-blue-500' : 'bg-orange-400'}`} 
-                        style={{ width: `${Math.min(100, (f.realAmountSoFar / Math.max(f.projectedTotal, 1)) * 100)}%` }}
-                      />
-                    </div>
+          <div className="space-y-3">
+            {topProductsByCategory.map((item, index) => (
+              <div key={item.category} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-xl flex items-center justify-center font-black text-sm">
+                    {index + 1}
                   </div>
-                ))
-              )}
-            </div>
-            {agreementForecasts.some(f => f.trend > 15) && (
-              <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100 flex gap-3 animate-pulse">
-                <AlertTriangle className="text-orange-600 shrink-0" size={18} />
-                <p className="text-[10px] text-orange-800 font-bold leading-tight uppercase">Crescimento acelerado detectado em {agreementForecasts.filter(f => f.trend > 15).length} convênios. Verifique o limite de crédito.</p>
+                  <div>
+                    <p className="font-bold text-gray-800 text-sm uppercase">{item.name}</p>
+                    <p className="text-xs text-gray-400 font-medium">{item.category}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-black text-gray-800">{item.quantity.toFixed(2)} un</p>
+                  <p className="text-xs text-gray-400">R$ {item.total.toFixed(2)}</p>
+                </div>
               </div>
+            ))}
+            {topProductsByCategory.length === 0 && (
+              <p className="text-center text-gray-400 py-4">Sem dados de vendas</p>
             )}
           </div>
         </div>
-      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-8 rounded-[2.5rem] border shadow-sm">
-          <h3 className="text-lg font-black mb-6 flex items-center gap-3 uppercase tracking-tighter">
-            <TrendingUp size={20} className="text-orange-500" />
-            Vendas (Últimos 7 Dias)
-          </h3>
-          <div className="h-[300px]">
+        <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">Vendas (Últimos 7 Dias)</h4>
+              <p className="text-xs text-gray-400 font-medium">Evolução diária</p>
+            </div>
+          </div>
+          <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={salesByDay}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -287,32 +396,72 @@ const Dashboard: React.FC = () => {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
-        <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm">
-          <h3 className="text-lg font-black mb-6 uppercase tracking-tighter">Meios de Pagamento</h3>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={salesByPayment}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={85}
-                  paddingAngle={8}
-                  dataKey="value"
-                >
-                  {salesByPayment.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" iconType="circle" />
-              </PieChart>
-            </ResponsiveContainer>
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden">
+            <header className="p-8 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="text-xl font-black flex items-center gap-2">
+                <Printer className="text-blue-600" />
+                Imprimir Relatório
+              </h3>
+              <button onClick={() => setShowReportModal(false)} className="p-2 hover:bg-gray-100 rounded-full"><X /></button>
+            </header>
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase block mb-2">Data Inicial</label>
+                  <input 
+                    type="date" 
+                    className="w-full px-4 py-3 bg-gray-50 rounded-xl font-bold"
+                    value={reportStartDate}
+                    onChange={(e) => setReportStartDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-black text-gray-400 uppercase block mb-2">Data Final</label>
+                  <input 
+                    type="date" 
+                    className="w-full px-4 py-3 bg-gray-50 rounded-xl font-bold"
+                    value={reportEndDate}
+                    onChange={(e) => setReportEndDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {reportData && (
+                <div className="bg-gray-50 p-6 rounded-2xl space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total Vendas:</span>
+                    <span className="font-black text-gray-800">R$ {reportData.totalVendas.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Entradas:</span>
+                    <span className="font-black text-emerald-600">+ R$ {reportData.totalEntradas.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Saídas:</span>
+                    <span className="font-black text-red-600">- R$ {reportData.totalSaidas.toFixed(2)}</span>
+                  </div>
+                  <div className="border-t pt-3 flex justify-between">
+                    <span className="font-black text-gray-800">Saldo Final:</span>
+                    <span className="font-black text-orange-600">R$ {reportData.saldoFinal.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+
+              <button 
+                onClick={printReport}
+                disabled={!reportStartDate || !reportEndDate}
+                className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg hover:bg-blue-700 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Gerar e Imprimir
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

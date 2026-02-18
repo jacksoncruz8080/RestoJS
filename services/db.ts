@@ -14,7 +14,8 @@ async function fetchAPI(endpoint: string, options?: RequestInit) {
     },
   });
   if (!response.ok) {
-    throw new Error(`API Error: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`API Error: ${response.status} - ${errorText || response.statusText}`);
   }
   return response.json();
 }
@@ -173,6 +174,21 @@ export const db = {
     return rows.map(mapSale);
   },
   saveSale: async (sale: Sale) => {
+    // console.log('Saving sale:', JSON.stringify({
+    //   id: sale.id,
+    //   orderNumber: sale.orderNumber,
+    //   customerName: sale.customerName,
+    //   items: sale.items,
+    //   subtotal: sale.subtotal,
+    //   discount: sale.discount,
+    //   total: sale.total,
+    //   paymentMethod: sale.paymentMethod,
+    //   timestamp: sale.timestamp,
+    //   status: sale.status,
+    //   operatorId: sale.operatorId,
+    //   agreementId: sale.agreementId,
+    //   employeeId: sale.employeeId,
+    // }));
     await fetchAPI('/sales', {
       method: 'POST',
       body: JSON.stringify({
